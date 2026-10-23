@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yawmi</title>
+<style>
+  :root{--bg:#f6f4ef;--card:#fff;--text:#1f2a37;--muted:#6b7280;--accent:#0f766e;--accent2:#14b8a6;--line:#e5e7eb;--danger:#dc2626}
+  @media (prefers-color-scheme:dark){:root{--bg:#10151b;--card:#18202a;--text:#e5e7eb;--muted:#94a3b8;--accent:#2dd4bf;--accent2:#14b8a6;--line:#2a3441;--danger:#f87171}}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  .wrap{max-width:640px;margin:0 auto;padding:20px 16px 60px}
+  h1{font-size:1.6rem;margin:8px 0 2px}
+  .sub{color:var(--muted);margin:0 0 18px}
+  .tabs{display:flex;gap:8px;margin-bottom:16px}
+  .tabs button{flex:1;padding:10px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;font-size:1rem;cursor:pointer}
+  .tabs button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  @media (prefers-color-scheme:dark){.tabs button.active{color:#0b1217}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+  form{display:flex;gap:8px;margin-bottom:14px}
+  input[type=text]{flex:1;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--text);font-size:1rem}
+  .add{padding:0 16px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-size:1rem;cursor:pointer}
+  @media (prefers-color-scheme:dark){.add{color:#0b1217}}
+  .row{display:flex;align-items:center;gap:10px}
+  .row .name{flex:1;font-weight:600}
+  .done{text-decoration:line-through;color:var(--muted)}
+  .check{width:28px;height:28px;border-radius:50%;border:2px solid var(--accent);background:transparent;cursor:pointer;flex:none;font-size:1rem;color:#fff;line-height:1}
+  .check.on{background:var(--accent)}
+  .del{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:1.1rem}
+  .del:hover{color:var(--danger)}
+  .streak{font-size:.85rem;color:var(--muted);margin-top:6px}
+  .week{display:flex;gap:4px;margin-top:8px}
+  .week span{flex:1;text-align:center;font-size:.7rem;color:var(--muted)}
+  .week i{display:block;height:8px;border-radius:4px;background:var(--line);margin-bottom:3px}
+  .week i.on{background:var(--accent2)}
+  .empty{text-align:center;color:var(--muted);padding:24px 0}
+  .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin:4px 0 16px}
+  .bar div{height:100%;background:var(--accent2);width:0;transition:width .3s}
+  .foot{text-align:center;color:var(--muted);font-size:.8rem;margin-top:24px}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Yawmi · يومي</h1>
+  <p class="sub" id="today"></p>
+
+  <div class="tabs">
+    <button id="tabH" class="active">Habitudes</button>
+    <button id="tabT">Tâches</button>
+  </div>
+
+  <section id="habits">
+    <div class="bar"><div id="hbar"></div></div>
+    <form id="hform"><input type="text" id="hin" placeholder="Nouvelle habitude (ex: boire de l'eau)" maxlength="60"><button class="add">+</button></form>
+    <div id="hlist"></div>
+  </section>
+
+  <section id="tasks" class="hidden">
+    <div class="bar"><div id="tbar"></div></div>
+    <form id="tform"><input type="text" id="tin" placeholder="Nouvelle tâche" maxlength="80"><button class="add">+</button></form>
+    <div id="tlist"></div>
+  </section>
+
+  <p class="foot">Tes données restent dans ton navigateur, rien n'est envoyé nulle part.</p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try { return JSON.parse(localStorage.getItem(k)) ?? d } catch(e){ return d } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)) } catch(e){} }
+};
+let habits = store.get('habits', []);
+let tasks = store.get('tasks', []);
+
+const iso = d => { const z = new Date(d.getTime() - d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10) };
+const todayKey = iso(new Date());
+const esc = s => s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+$('today').textContent = new Date().toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long'});
+
+function streak(h){
+  let n = 0, d = new Date();
+  if (!h.days.includes(iso(d))) d.setDate(d.getDate()-1);
+  while (h.days.includes(iso(d))) { n++; d.setDate(d.getDate()-1) }
+  return n;
+}
+
+function renderHabits(){
+  const list = $('hlist');
+  if (!habits.length){ list.innerHTML = '<div class="empty">Ajoute ta première habitude</div>'; $('hbar').style.width='0'; return }
+  const letters = ['D','L','M','M','J','V','S'];
+  list.innerHTML = habits.map((h,i) => {
+    const on = h.days.includes(todayKey);
+    let week = '';
+    for (let k=6;k>=0;k--){ const d = new Date(); d.setDate(d.getDate()-k); week += `<span><i class="${h.days.includes(iso(d))?'on':''}"></i>${letters[d.getDay()]}</span>` }
+    const s = streak(h);
+    return `<div class="card"><div class="row">
+      <button class="check ${on?'on':''}" data-h="${i}" aria-label="Valider">${on?'✓':''}</button>
+      <div class="name ${on?'done':''}">${esc(h.name)}</div>
+      <button class="del" data-hd="${i}" aria-label="Supprimer">✕</button></div>
+      <div class="week">${week}</div>
+      <div class="streak">${s ? '🔥 '+s+' jour'+(s>1?'s':'')+' de suite' : 'Commence aujourd\'hui'}</div></div>`;
+  }).join('');
+  const doneCount = habits.filter(h => h.days.includes(todayKey)).length;
+  $('hbar').style.width = (doneCount/habits.length*100)+'%';
+}
+
+function renderTasks(){
+  const list = $('tlist');
+  if (!tasks.length){ list.innerHTML = '<div class="empty">Aucune tâche pour le moment</div>'; $('tbar').style.width='0'; return }
+  list.innerHTML = tasks.map((t,i) => `<div class="card"><div class="row">
+      <button class="check ${t.done?'on':''}" data-t="${i}" aria-label="Valider">${t.done?'✓':''}</button>
+      <div class="name ${t.done?'done':''}">${esc(t.name)}</div>
+      <button class="del" data-td="${i}" aria-label="Supprimer">✕</button></div></div>`).join('');
+  $('tbar').style.width = (tasks.filter(t=>t.done).length/tasks.length*100)+'%';
+}
+
+$('hform').onsubmit = e => { e.preventDefault(); const v = $('hin').value.trim(); if(!v) return;
+  habits.push({name:v, days:[]}); store.set('habits',habits); $('hin').value=''; renderHabits() };
+$('tform').onsubmit = e => { e.preventDefault(); const v = $('tin').value.trim(); if(!v) return;
+  tasks.push({name:v, done:false}); store.set('tasks',tasks); $('tin').value=''; renderTasks() };
+
+$('hlist').onclick = e => {
+  const t = e.target;
+  if (t.dataset.h !== undefined){ const h = habits[+t.dataset.h];
+    h.days = h.days.includes(todayKey) ? h.days.filter(d=>d!==todayKey) : [...h.days, todayKey];
+    store.set('habits',habits); renderHabits() }
+  if (t.dataset.hd !== undefined && confirm('Supprimer cette habitude ?')){ habits.splice(+t.dataset.hd,1); store.set('habits',habits); renderHabits() }
+};
+$('tlist').onclick = e => {
+  const t = e.target;
+  if (t.dataset.t !== undefined){ tasks[+t.dataset.t].done = !tasks[+t.dataset.t].done; store.set('tasks',tasks); renderTasks() }
+  if (t.dataset.td !== undefined){ tasks.splice(+t.dataset.td,1); store.set('tasks',tasks); renderTasks() }
+};
+
+function show(which){
+  $('habits').classList.toggle('hidden', which!=='h'); $('tasks').classList.toggle('hidden', which!=='t');
+  $('tabH').classList.toggle('active', which==='h'); $('tabT').classList.toggle('active', which==='t');
+}
+$('tabH').onclick = () => show('h'); $('tabT').onclick = () => show('t');
+
+renderHabits(); renderTasks();
+</script>
+</body>
+</html>
